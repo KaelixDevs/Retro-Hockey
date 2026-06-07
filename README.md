@@ -1,17 +1,23 @@
 A retro-style hockey game with fast matches and arcade vibes
 
-Player 1 Controls:
+Player 1:
 
-Move: WASD
-Shoot / Check: Space or Z
+WASD — Move
+Space or Z — Shoot / Body Check
+X — Pass to teammate
+Q — Switch active player
 
-Player 2 Controls:
+Player 2:
 
-Move: Arrow Keys
-Shoot: Enter
+Arrow Keys — Move
+Enter — Shoot / Body Check
+, (Comma) — Pass to teammate
+M — Switch active player
 
 Tips:
 Use checks to steal the puck
 Stay close to the goal for quick shots
 
 Have fun :)
+
+Note: The HTML File Linked in the Main is v1.0, To Get Recent Versions, Please Download From the Release.
