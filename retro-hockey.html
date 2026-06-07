@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ICE FURY - Retro Hockey</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#1a1a1a;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh;
+    font-family:'Press Start 2P', monospace;
+    overflow:hidden;
+  }
+  #wrapper { position:relative; display:flex; flex-direction:column; align-items:center; }
+
+  #hud {
+    display:flex; justify-content:space-between; align-items:center;
+    width:800px; padding:8px 20px;
+    background:#111; border:3px solid #555; border-bottom:2px solid #333; color:#fff;
+  }
+  .score-block { text-align:center; }
+  .team-name   { font-size:7px; color:#cc3300; margin-bottom:4px; }
+  .team-name.right { color:#2255cc; }
+  .score-num   { font-size:22px; color:#eee; }
+  .period-block{ text-align:center; }
+  .period-label{ font-size:6px; color:#aaa; margin-bottom:4px; }
+  .period-val  { font-size:14px; color:#ddd; }
+  .timer-val   { font-size:11px; color:#bbb; margin-top:4px; }
+
+  canvas {
+    display:block;
+    border:3px solid #444;
+    image-rendering:pixelated;
+  }
+
+  #scanlines {
+    position:absolute; top:47px; left:0; width:800px; height:500px;
+    pointer-events:none;
+    background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.12) 3px,rgba(0,0,0,0.12) 4px);
+    z-index:10;
+  }
+
+  #bottom-bar {
+    width:800px; background:#111; border:3px solid #555; border-top:2px solid #333;
+    padding:6px 16px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .controls-hint { font-size:5px; color:#555; }
+  .controls-hint span { color:#999; }
+  #message-bar {
+    font-size:7px; color:#ffdd44; letter-spacing:1px;
+    min-width:220px; text-align:center;
+  }
+
+  #overlay {
+    position:absolute; top:47px; left:0; width:800px; height:500px;
+    background:rgba(0,0,0,0.92);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    z-index:20;
+  }
+  #overlay h1 {
+    font-size:30px; color:#dd3300; margin-bottom:12px;
+    letter-spacing:4px; text-shadow:2px 2px 0 #000;
+  }
+  .subtitle { font-size:9px; color:#cc7700; margin-bottom:24px; letter-spacing:2px; }
+  #overlay h2 { font-size:13px; color:#cccccc; margin-bottom:10px; }
+  #overlay p  { font-size:7px; color:#888; margin:3px 0; text-align:center; line-height:2; }
+  #overlay .big-btn {
+    margin-top:22px; padding:14px 32px;
+    background:#cc3300; color:#fff;
+    font-family:'Press Start 2P', monospace; font-size:12px;
+    border:3px solid #ff6600; cursor:pointer;
+    animation:blink-btn 1s step-end infinite;
+  }
+  @keyframes blink-btn { 0%,100%{opacity:1} 50%{opacity:0.45} }
+</style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="hud">
+    <div class="score-block">
+      <div class="team-name">THUNDER</div>
+      <div class="score-num" id="score-left">0</div>
+    </div>
+    <div class="period-block">
+      <div class="period-label">PERIOD</div>
+      <div class="period-val" id="period-num">1</div>
+      <div class="timer-val" id="timer-display">2:00</div>
+    </div>
+    <div class="score-block">
+      <div class="team-name right">BLIZZARD</div>
+      <div class="score-num" id="score-right">0</div>
+    </div>
+  </div>
+
+  <canvas id="game" width="800" height="500"></canvas>
+  <div id="scanlines"></div>
+
+  <div id="bottom-bar">
+    <div class="controls-hint"><span>WASD</span> MOVE &nbsp;|&nbsp; <span>SPACE/Z</span> SHOOT/CHECK</div>
+    <div id="message-bar"></div>
+    <div class="controls-hint"><span>ARROWS</span> P2 MOVE &nbsp;|&nbsp; <span>ENTER</span> P2 SHOOT</div>
+  </div>
+
+  <div id="overlay">
+    <h1>ICE FURY</h1>
+    <div class="subtitle">★  RETRO  HOCKEY  ★</div>
+    <h2>PLAYER 1 vs CPU</h2>
+    <p>WASD = MOVE &nbsp;|&nbsp; SPACE or Z = SHOOT / CHECK</p>
+    <p>ARROWS = P2 MOVE &nbsp;|&nbsp; ENTER = P2 SHOOT</p>
+    <p>&nbsp;</p>
+    <p>GRAB THE PUCK · SKATE HARD · BLAST IT IN</p>
+    <button class="big-btn" id="start-btn">► GAME START</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 500;
+
+// ── CONTRA-STYLE PALETTE (no neon, flat pixel colors) ────────────────────────
+const C = {
+  bg:       '#111118',
+  crowd:    ['#882200','#223388','#888800','#884400','#336633'],
+  ice:      '#bcd4e0',
+  iceMid:   '#c8dcea',
+  iceDark:  '#a0b8c8',
+  line:     '#ffffff',
+  lineRed:  '#cc2200',
+  lineBlue: '#2244aa',
+  board:    '#334455',
+  boardEdge:'#223344',
+  goalPost: '#bb8822',
+  goalNetR: '#cc221144',
+  goalNetB: '#2233cc44',
+  red:      '#cc2200',
+  redDark:  '#881100',
+  blue:     '#1133cc',
+  blueDark: '#0a2288',
+  white:    '#eeeeee',
+  black:    '#111111',
+  puck:     '#181818',
+  yellow:   '#ddbb00',
+  orange:   '#cc6600',
+  flesh:    '#d4a070',
+  skate:    '#99aacc',
+  woodStick:'#886633',
+  gray:     '#667788',
+  spark:    '#99ccdd',
+};
+
+// ── RINK GEOMETRY ─────────────────────────────────────────────────────────────
+const RINK = { x:40, y:30, w:720, h:440, cr:55 };
+const GOAL = { w:16, h:84 };
+const goals = [
+  { x: RINK.x,              y: RINK.y + RINK.h/2 - GOAL.h/2 },
+  { x: RINK.x+RINK.w-GOAL.w, y: RINK.y + RINK.h/2 - GOAL.h/2 },
+];
+
+// ── GAME STATE ────────────────────────────────────────────────────────────────
+let gameState  = 'menu'; // menu | play | goal | gameover
+let scores     = [0, 0];
+let period     = 1;
+const PERIOD_TIME = 120;
+let periodTimer   = 0;
+let goalCooldown  = 0;
+let lastTS        = 0;
+let msgTimer      = 0;
+let players       = [];
+let goalies       = [];
+let particles     = [];
+
+// ── INPUT ─────────────────────────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space','KeyZ','Enter','Slash','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
+    e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── PUCK ──────────────────────────────────────────────────────────────────────
+const puck = {
+  x: W/2, y: H/2,
+  vx: 0, vy: 0,
+  r: 7,
+  owner: null,      // Player ref or null
+  trail: [],
+  stuckTimer: 0,    // anti-freeze: if speed < threshold for too long, nudge it
+};
+
+// ── PLAYER CLASS ─────────────────────────────────────────────────────────────
+class Player {
+  constructor(x, y, team, role) {
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.w = 18; this.h = 22;
+    this.team = team;   // 0 = left/red, 1 = right/blue
+    this.role = role;   // 'human' | 'forward' | 'defender'
+    this.isAI = role !== 'human';
+    this.dir = team === 0 ? 1 : -1;
+    this.speed = 210;
+    this.hasPuck = false;
+    this.shootCd = 0;
+    this.checkCd = 0;
+    this.stunned  = 0;
+    this.stride   = 0;
+    // AI state machine
+    this.aiState  = 'chase'; // chase | possess | defend | position
+    this.aiThink  = 0;       // seconds until next decision
+  }
+  get cx() { return this.x + this.w/2; }
+  get cy() { return this.y + this.h/2; }
+  get puckFX() {
+    return this.dir > 0 ? this.x + this.w + 3 : this.x - 3;
+  }
+  get puckFY() { return this.y + this.h * 0.65; }
+}
+
+// ── GOALIE CLASS ──────────────────────────────────────────────────────────────
+class Goalie {
+  constructor(team) {
+    this.team = team;
+    this.w = 20; this.h = 30;
+    this.x = team === 0 ? RINK.x + 20 : RINK.x + RINK.w - 40;
+    this.y = H/2 - 15;
+    this.vy = 0;
+    this.stride = 0;
+    this.saveCd = 0;
+  }
+  get cx() { return this.x + this.w/2; }
+  get cy() { return this.y + this.h/2; }
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+function initGame() {
+  scores     = [0, 0];
+  period     = 1;
+  periodTimer = 0;
+  particles  = [];
+  resetRound();
+  updateHUD();
+}
+
+function resetRound() {
+  // Puck
+  puck.x = W/2; puck.y = H/2;
+  // Give puck a random starting kick toward middle
+  const ang = (Math.random() * Math.PI/2) - Math.PI/4 + (Math.random()<0.5 ? 0 : Math.PI);
+  puck.vx = Math.cos(ang) * 90;
+  puck.vy = Math.sin(ang) * 90;
+  puck.owner = null;
+  puck.trail = [];
+  puck.stuckTimer = 0;
+
+  // Players: P0=human(left), P1=AI forward(right), P2=AI defender(left), P3=AI defender(right)
+  players = [
+    new Player(RINK.x + RINK.w*0.30, H/2 - 11, 0, 'human'),
+    new Player(RINK.x + RINK.w*0.70, H/2 - 11, 1, 'forward'),
+    new Player(RINK.x + RINK.w*0.18, H/2 + 30, 0, 'defender'),
+    new Player(RINK.x + RINK.w*0.82, H/2 + 30, 1, 'defender'),
+  ];
+
+  goalies = [new Goalie(0), new Goalie(1)];
+}
+
+// ── PARTICLES ─────────────────────────────────────────────────────────────────
+function spawnParticles(x, y, n, color, spd=100, life=0.7, sz=3) {
+  for (let i=0;i<n;i++) {
+    const a = Math.random()*Math.PI*2;
+    const s = Math.random()*spd + 20;
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life, maxLife:life, color, size:Math.random()*sz+1 });
+  }
+}
+
+function spawnSparks(x, y) {
+  spawnParticles(x, y, 5, C.spark, 70, 0.25, 2);
+}
+
+function spawnGoalExplosion(team) {
+  const gx = team===0 ? goals[1].x : goals[0].x;
+  const gy = goals[team===0?1:0].y + GOAL.h/2;
+  const cols = [C.yellow, C.orange, '#ffffff', team===0?C.red:C.blue, '#dddd00'];
+  for (let i=0;i<60;i++) {
+    const a = Math.random()*Math.PI*2;
+    const s = Math.random()*220+40;
+    particles.push({
+      x: gx, y: gy,
+      vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+      life:1.4, maxLife:1.4,
+      color:cols[Math.floor(Math.random()*cols.length)],
+      size:Math.random()*7+2
+    });
+  }
+}
+
+function updateParticles(dt) {
+  let i = particles.length;
+  while (i--) {
+    const p = particles[i];
+    p.x  += p.vx*dt; p.y  += p.vy*dt;
+    p.vx *= 0.91;    p.vy *= 0.91;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// ── COLLISION HELPERS ─────────────────────────────────────────────────────────
+function circRect(cx,cy,cr, rx,ry,rw,rh) {
+  const nx = Math.max(rx, Math.min(cx, rx+rw));
+  const ny = Math.max(ry, Math.min(cy, ry+rh));
+  const dx = cx-nx, dy = cy-ny;
+  return dx*dx+dy*dy < cr*cr;
+}
+
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi,v)); }
+
+function clampPlayerToRink(p) {
+  p.x = clamp(p.x, RINK.x+2, RINK.x+RINK.w-p.w-2);
+  p.y = clamp(p.y, RINK.y+2, RINK.y+RINK.h-p.h-2);
+}
+
+// ── PUCK PHYSICS ──────────────────────────────────────────────────────────────
+const FRICTION = 0.987;
+
+function puckWallBounce() {
+  const r = puck.r;
+  let hit = false;
+
+  // Left wall (allow if puck is in left goal zone going INTO goal — handled by checkGoal)
+  if (puck.x - r < RINK.x) {
+    puck.x = RINK.x + r;
+    puck.vx = Math.abs(puck.vx) * 0.72;
+    hit = true;
+  }
+  if (puck.x + r > RINK.x + RINK.w) {
+    puck.x = RINK.x + RINK.w - r;
+    puck.vx = -Math.abs(puck.vx) * 0.72;
+    hit = true;
+  }
+  if (puck.y - r < RINK.y) {
+    puck.y = RINK.y + r;
+    puck.vy = Math.abs(puck.vy) * 0.72;
+    hit = true;
+  }
+  if (puck.y + r > RINK.y + RINK.h) {
+    puck.y = RINK.y + RINK.h - r;
+    puck.vy = -Math.abs(puck.vy) * 0.72;
+    hit = true;
+  }
+  if (hit) spawnSparks(puck.x, puck.y);
+}
+
+function puckAntiFreeze(dt) {
+  if (puck.owner) { puck.stuckTimer = 0; return; }
+  const spd2 = puck.vx*puck.vx + puck.vy*puck.vy;
+  if (spd2 < 40*40) {
+    puck.stuckTimer += dt;
+    if (puck.stuckTimer > 2.5) {
+      // Nudge puck toward center
+      const dx = W/2 - puck.x, dy = H/2 - puck.y;
+      const d  = Math.sqrt(dx*dx+dy*dy)||1;
+      puck.vx  = (dx/d)*120 + (Math.random()-0.5)*60;
+      puck.vy  = (dy/d)*120 + (Math.random()-0.5)*60;
+      puck.stuckTimer = 0;
+    }
+  } else {
+    puck.stuckTimer = 0;
+  }
+}
+
+// ── GOAL CHECK ────────────────────────────────────────────────────────────────
+function checkGoal() {
+  if (goalCooldown > 0 || gameState !== 'play') return;
+  // Left goal → team 1 scores
+  const lg = goals[0];
+  if (puck.x-puck.r < lg.x+GOAL.w && puck.x+puck.r > lg.x &&
+      puck.y-puck.r < lg.y+GOAL.h  && puck.y+puck.r > lg.y) {
+    doScore(1); return;
+  }
+  // Right goal → team 0 scores
+  const rg = goals[1];
+  if (puck.x+puck.r > rg.x && puck.x-puck.r < rg.x+GOAL.w &&
+      puck.y-puck.r < rg.y+GOAL.h && puck.y+puck.r > rg.y) {
+    doScore(0);
+  }
+}
+
+function doScore(team) {
+  scores[team]++;
+  gameState    = 'goal';
+  goalCooldown = 3.0;
+  puck.owner   = null;
+  puck.vx = puck.vy = 0;
+  spawnGoalExplosion(team);
+  showMsg((team===0?'THUNDER':'BLIZZARD')+' SCORES!!', 4);
+  updateHUD();
+  setTimeout(() => {
+    if (gameState !== 'gameover') {
+      gameState    = 'play';
+      goalCooldown = 0;
+      resetRound();
+      showMsg('');
+    }
+  }, 3000);
+}
+
+// ── SHOOT ─────────────────────────────────────────────────────────────────────
+function shoot(p, targetX, targetY, powerMult=1) {
+  if (p.shootCd > 0 || !p.hasPuck) return false;
+  puck.owner = null;
+  p.hasPuck  = false;
+  const dx = targetX - p.cx, dy = targetY - p.cy;
+  const d  = Math.sqrt(dx*dx+dy*dy)||1;
+  const pw = (460 + Math.random()*60) * powerMult;
+  puck.vx = (dx/d)*pw;
+  puck.vy = (dy/d)*pw;
+  puck.x  = p.puckFX;
+  puck.y  = p.puckFY;
+  p.shootCd = 0.55;
+  spawnSparks(puck.x, puck.y);
+  return true;
+}
+
+// ── BODY CHECK ────────────────────────────────────────────────────────────────
+function bodyCheck(attacker, victim) {
+  if (attacker.checkCd > 0 || attacker.stunned > 0 || victim.stunned > 0) return;
+  attacker.checkCd = 0.85;
+  victim.stunned   = 0.75;
+  const dx = victim.cx - attacker.cx;
+  const dy = victim.cy - attacker.cy;
+  const d  = Math.sqrt(dx*dx+dy*dy)||1;
+  victim.vx = (dx/d)*300;
+  victim.vy = (dy/d)*300;
+  if (victim.hasPuck) {
+    victim.hasPuck = false;
+    puck.owner = null;
+    puck.vx = (dx/d)*260 + (Math.random()-0.5)*80;
+    puck.vy = (dy/d)*260 + (Math.random()-0.5)*80;
+    puck.x  = victim.puckFX;
+    puck.y  = victim.puckFY;
+  }
+  spawnParticles(victim.cx, victim.cy, 10, C.white, 130, 0.35, 3);
+  showMsg('CHECK!!');
+}
+
+// ── PLAYER INPUT ─────────────────────────────────────────────────────────────
+function handleInput(dt) {
+  const p = players[0];
+  if (!p) return;
+  if (p.stunned > 0) return;
+
+  let mx=0, my=0;
+  if (keys['KeyA'] || keys['ArrowLeft'])  mx=-1;
+  if (keys['KeyD'] || keys['ArrowRight']) mx=1;
+  if (keys['KeyW'] || keys['ArrowUp'])    my=-1;
+  if (keys['KeyS'] || keys['ArrowDown'])  my=1;
+
+  if (mx||my) {
+    const len = Math.sqrt(mx*mx+my*my);
+    p.vx = (mx/len)*p.speed;
+    p.vy = (my/len)*p.speed;
+    if (mx) p.dir = mx>0?1:-1;
+  } else {
+    p.vx *= 0.78; p.vy *= 0.78;
+  }
+
+  if (keys['Space'] || keys['KeyZ']) {
+    keys['Space'] = false; keys['KeyZ'] = false;
+    if (p.hasPuck) {
+      const eg = goals[1]; // always shoot at right goal for P1
+      const ty = eg.y + GOAL.h/2 + (Math.random()-0.5)*GOAL.h*0.6;
+      shoot(p, eg.x, ty);
+    } else {
+      // attempt check on nearest enemy
+      attemptCheck(p);
+      p.shootCd = 0.3;
+    }
+  }
+}
+
+function attemptCheck(p) {
+  let best = null, bd2 = 38*38;
+  for (const o of players) {
+    if (o.team === p.team) continue;
+    const dx=o.cx-p.cx, dy=o.cy-p.cy, d2=dx*dx+dy*dy;
+    if (d2 < bd2) { bd2=d2; best=o; }
+  }
+  if (best) bodyCheck(p, best);
+}
+
+// ── AI STATE MACHINE ──────────────────────────────────────────────────────────
+function updateAI(p, dt) {
+  if (p.stunned > 0 || !p.isAI) return;
+
+  p.aiThink -= dt;
+
+  const hasPuck      = !!puck.owner;
+  const weHavePuck   = puck.owner && puck.owner.team === p.team;
+  const theyHavePuck = puck.owner && puck.owner.team !== p.team;
+
+  const myGoal   = goals[p.team];
+  const eneGoal  = goals[1-p.team];
+  const myGCX    = myGoal.x  + (p.team===0 ? GOAL.w : 0);
+  const myGCY    = myGoal.y  + GOAL.h/2;
+  const eneGCX   = eneGoal.x + (p.team===0 ? 0 : GOAL.w);
+  const eneGCY   = eneGoal.y + GOAL.h/2;
+
+  // ── DECIDE STATE ──────────────────────────────────────────────────────────
+  if (p.aiThink <= 0) {
+    p.aiThink = 0.15 + Math.random()*0.1;
+
+    if (p.hasPuck) {
+      p.aiState = 'possess';
+    } else if (theyHavePuck) {
+      // Forwards chase; defenders block lane
+      if (p.role === 'forward') p.aiState = 'chase';
+      else                      p.aiState = 'defend';
+    } else {
+      // Loose puck
+      const dPuck2 = distSq(p.cx, p.cy, puck.x, puck.y);
+      const teammateDist = closestTeammateDistSq(p);
+      // If we're closest teammate to puck, chase it
+      if (dPuck2 < teammateDist || p.role==='forward') p.aiState='chase';
+      else p.aiState = 'position';
+    }
+  }
+
+  // ── ACT ON STATE ──────────────────────────────────────────────────────────
+  let targetX = p.x, targetY = p.y;
+
+  if (p.aiState === 'possess') {
+    // Move toward enemy goal while possessing puck
+    const progressX = eneGCX + (p.team===0 ? -80 : 80); // approach zone
+    targetX = progressX;
+    targetY = eneGCY;
+
+    // Shoot if close enough and clear line
+    const dx=eneGCX-p.cx, dy=eneGCY-p.cy;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if (dist < 280 && p.shootCd <= 0) {
+      // Aim: add scatter based on distance (closer = tighter)
+      const scatter = (dist/280)*GOAL.h*0.5;
+      const ty = eneGCY + (Math.random()-0.5)*scatter;
+      shoot(p, eneGCX, ty);
+    }
+    // If AI is stuck near our own goal with puck, clear it
+    const dMyGoal = distSq(p.cx,p.cy,myGCX,myGCY);
+    if (dMyGoal < 120*120) {
+      targetX = W/2; targetY = H/2;
+    }
+  }
+  else if (p.aiState === 'chase') {
+    // Predict puck position slightly ahead
+    targetX = puck.x + puck.vx*0.18;
+    targetY = puck.y + puck.vy*0.18;
+    // If we're right on the puck and we got it, switch to possess
+    if (p.hasPuck) p.aiState = 'possess';
+  }
+  else if (p.aiState === 'defend') {
+    // Stand between enemy puck carrier and our goal
+    if (puck.owner) {
+      const ex=puck.owner.cx, ey=puck.owner.cy;
+      targetX = myGCX + (ex-myGCX)*0.4;
+      targetY = myGCY + (ey-myGCY)*0.4;
+    } else {
+      targetX = myGCX + (p.team===0?60:-60);
+      targetY = myGCY;
+    }
+    // Try to check enemy puck carrier
+    if (theyHavePuck && p.checkCd<=0) {
+      const carrier = puck.owner;
+      if (distSq(p.cx,p.cy,carrier.cx,carrier.cy) < 34*34) {
+        bodyCheck(p, carrier);
+      }
+    }
+  }
+  else { // 'position': get into good offensive/support position
+    if (p.role==='forward') {
+      // Hover at offensive zone
+      targetX = eneGCX + (p.team===0 ? -120 : 120);
+      targetY = H/2 + (p.team===0 ? -30 : 30);
+    } else {
+      // Defensive position
+      targetX = myGCX + (p.team===0 ? 100 : -100);
+      targetY = myGCY;
+    }
+  }
+
+  // ── MOVE ──────────────────────────────────────────────────────────────────
+  const tx = targetX - p.cx, ty = targetY - p.cy;
+  const td = Math.sqrt(tx*tx+ty*ty);
+  if (td > 8) {
+    p.vx = (tx/td)*p.speed;
+    p.vy = (ty/td)*p.speed;
+    if (Math.abs(tx)>2) p.dir = tx>0?1:-1;
+  } else {
+    p.vx *= 0.75; p.vy *= 0.75;
+  }
+
+  // ── CHECK NEARBY ENEMIES ──────────────────────────────────────────────────
+  if (p.checkCd <= 0 && !p.hasPuck) {
+    for (const o of players) {
+      if (o.team===p.team) continue;
+      if (distSq(p.cx,p.cy,o.cx,o.cy) < 30*30 && o.hasPuck) {
+        bodyCheck(p, o);
+        break;
+      }
+    }
+  }
+}
+
+function distSq(ax,ay,bx,by){ const dx=ax-bx,dy=ay-by; return dx*dx+dy*dy; }
+
+function closestTeammateDistSq(p) {
+  let best = Infinity;
+  for (const o of players) {
+    if (o===p || o.team!==p.team) continue;
+    const d = distSq(p.cx,p.cy,puck.x,puck.y);
+    if (d<best) best=d;
+  }
+  return best;
+}
+
+// ── GOALIE AI ─────────────────────────────────────────────────────────────────
+function updateGoalie(g, dt) {
+  // X: hug the post but come out slightly for puck
+  const postX   = g.team===0 ? RINK.x+22 : RINK.x+RINK.w-42;
+  const puckInZone = g.team===0 ? puck.x < RINK.x+200 : puck.x > RINK.x+RINK.w-200;
+  const targetX = puckInZone
+    ? (g.team===0 ? clamp(puck.x-10, postX, postX+30) : clamp(puck.x-10, postX-30, postX))
+    : postX;
+  g.x += (targetX - g.x) * 0.15;
+
+  // Y: track puck
+  const targetY = clamp(puck.y - g.h/2, RINK.y+4, RINK.y+RINK.h-g.h-4);
+  const dy = targetY - g.y;
+  g.vy += dy * 14 * dt;
+  g.vy *= 0.72;
+  g.y  += g.vy * dt;
+  g.y   = clamp(g.y, RINK.y+4, RINK.y+RINK.h-g.h-4);
+  g.stride += dt*7;
+  if (g.saveCd>0) g.saveCd-=dt;
+
+  // Block puck
+  if (g.saveCd<=0 && circRect(puck.x,puck.y,puck.r, g.x,g.y,g.w,g.h)) {
+    const mid  = g.y+g.h/2;
+    const side = puck.y - mid;
+    // Deflect clearly to the side
+    puck.vy = Math.sign(side)*(Math.abs(puck.vy)+80)*0.85 + (Math.random()-0.5)*50;
+    puck.vx = (g.team===0 ? 1 : -1)*(Math.abs(puck.vx)+150)*0.8;
+    puck.x  = g.team===0 ? g.x+g.w+puck.r+1 : g.x-puck.r-1;
+    g.saveCd = 0.3;
+    spawnParticles(puck.x, puck.y, 8, C.white, 90, 0.3, 2);
+    showMsg('SAVE!');
+  }
+}
+
+// ── HUD / MESSAGES ────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('score-left').textContent  = scores[0];
+  document.getElementById('score-right').textContent = scores[1];
+  document.getElementById('period-num').textContent  = period;
+  const rem = Math.max(0, PERIOD_TIME - periodTimer);
+  const m   = Math.floor(rem/60), s=Math.floor(rem%60);
+  document.getElementById('timer-display').textContent = m+':'+(s<10?'0':'')+s;
+}
+
+function showMsg(txt, dur=1.8) {
+  document.getElementById('message-bar').textContent = txt;
+  msgTimer = dur;
+}
+
+// ── MAIN UPDATE ───────────────────────────────────────────────────────────────
+function update(dt) {
+  if (gameState === 'goal') {
+    updateParticles(dt);
+    return;
+  }
+  if (gameState !== 'play') return;
+
+  // Period clock
+  periodTimer += dt;
+  if (periodTimer >= PERIOD_TIME) {
+    periodTimer = PERIOD_TIME;
+    if (period < 3) {
+      period++;
+      periodTimer=0;
+      resetRound();
+      showMsg('PERIOD '+period+'  START!');
+    } else {
+      gameState = 'gameover';
+      showGameOver();
+    }
+  }
+  updateHUD();
+
+  // Message timer
+  if (msgTimer>0) { msgTimer-=dt; if(msgTimer<=0) document.getElementById('message-bar').textContent=''; }
+
+  // Cooldowns
+  for (const p of players) {
+    if (p.shootCd>0) p.shootCd-=dt;
+    if (p.checkCd>0) p.checkCd-=dt;
+    if (p.stunned>0) { p.stunned-=dt; p.vx*=0.88; p.vy*=0.88; }
+  }
+
+  // Input + AI
+  handleInput(dt);
+  for (const p of players) {
+    if (p.isAI) updateAI(p, dt);
+  }
+
+  // Move players
+  for (const p of players) {
+    if (p.stunned>0) continue; // stunned sliding handled above
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+    clampPlayerToRink(p);
+    p.stride += dt*(Math.abs(p.vx)+Math.abs(p.vy)>40?9:0);
+  }
+
+  // Player-player separation
+  for (let i=0;i<players.length;i++) {
+    for (let j=i+1;j<players.length;j++) {
+      const a=players[i], b=players[j];
+      const dx=b.cx-a.cx, dy=b.cy-a.cy;
+      const d2=dx*dx+dy*dy;
+      const minD=20;
+      if (d2<minD*minD && d2>0.01) {
+        const d=Math.sqrt(d2);
+        const push=(minD-d)*0.4;
+        const nx=dx/d, ny=dy/d;
+        a.x-=nx*push; a.y-=ny*push;
+        b.x+=nx*push; b.y+=ny*push;
+        clampPlayerToRink(a); clampPlayerToRink(b);
+      }
+    }
+  }
+
+  // Puck
+  if (puck.owner) {
+    puck.x  = puck.owner.puckFX;
+    puck.y  = puck.owner.puckFY;
+    puck.vx = 0; puck.vy = 0;
+  } else {
+    // Trail
+    puck.trail.push({x:puck.x, y:puck.y});
+    if (puck.trail.length>9) puck.trail.shift();
+
+    puck.vx *= FRICTION; puck.vy *= FRICTION;
+    puck.x  += puck.vx*dt;
+    puck.y  += puck.vy*dt;
+    puckWallBounce();
+    puckAntiFreeze(dt);
+
+    // Pickup check
+    for (const p of players) {
+      if (p.stunned>0 || p.hasPuck) continue;
+      if (circRect(puck.x,puck.y,puck.r+5, p.x,p.y,p.w,p.h)) {
+        puck.owner = p;
+        p.hasPuck  = true;
+        puck.trail = [];
+        break;
+      }
+    }
+  }
+
+  // Goalies
+  for (const g of goalies) updateGoalie(g, dt);
+
+  // Loose puck: also check goalie pickup (they can deflect, handled in goalie fn)
+  checkGoal();
+  updateParticles(dt);
+}
+
+// ── DRAW HELPERS ──────────────────────────────────────────────────────────────
+function px(x){ return Math.round(x); }
+function py(y){ return Math.round(y); }
+
+function fillRect(color, x, y, w, h) {
+  ctx.fillStyle=color;
+  ctx.fillRect(px(x),py(y),w,h);
+}
+
+// ── DRAW RINK ─────────────────────────────────────────────────────────────────
+function drawRink() {
+  const {x,y,w,h,cr}=RINK;
+
+  // Ice fill
+  ctx.fillStyle = C.iceMid;
+  ctx.beginPath();
+  ctx.moveTo(x+cr,y);
+  ctx.lineTo(x+w-cr,y);
+  ctx.arcTo(x+w,y,   x+w,y+cr,   cr);
+  ctx.lineTo(x+w,y+h-cr);
+  ctx.arcTo(x+w,y+h, x+w-cr,y+h, cr);
+  ctx.lineTo(x+cr,y+h);
+  ctx.arcTo(x,y+h,   x,y+h-cr,   cr);
+  ctx.lineTo(x,y+cr);
+  ctx.arcTo(x,y,     x+cr,y,     cr);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle ice texture stripes
+  ctx.save();
+  ctx.clip(); // clip to rink shape
+  ctx.strokeStyle='rgba(150,195,215,0.35)'; ctx.lineWidth=1;
+  for (let iy=y+14;iy<y+h;iy+=18) {
+    ctx.beginPath(); ctx.moveTo(x+8,iy); ctx.lineTo(x+w-8,iy); ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── Lines ──────────────────────────────────────────────────────────────────
+  // Center red line
+  ctx.strokeStyle='rgba(180,30,0,0.55)'; ctx.lineWidth=4;
+  ctx.setLineDash([10,8]);
+  ctx.beginPath(); ctx.moveTo(W/2,y+4); ctx.lineTo(W/2,y+h-4); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Center circle
+  ctx.strokeStyle='rgba(180,30,0,0.45)'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(W/2,H/2,58,0,Math.PI*2); ctx.stroke();
+
+  // Center dot
+  ctx.fillStyle='rgba(180,30,0,0.75)';
+  ctx.beginPath(); ctx.arc(W/2,H/2,5,0,Math.PI*2); ctx.fill();
+
+  // Blue lines
+  ctx.strokeStyle='rgba(20,60,180,0.5)'; ctx.lineWidth=4;
+  ctx.setLineDash([]);
+  [RINK.x+RINK.w*0.28, RINK.x+RINK.w*0.72].forEach(lx=>{
+    ctx.beginPath(); ctx.moveTo(lx,y+4); ctx.lineTo(lx,y+h-4); ctx.stroke();
+  });
+
+  // Face-off dots
+  const foDots=[
+    [x+170,y+108],[x+170,y+h-108],[x+w-170,y+108],[x+w-170,y+h-108]
+  ];
+  ctx.fillStyle='rgba(180,30,0,0.6)';
+  foDots.forEach(([fx,fy])=>{
+    ctx.beginPath(); ctx.arc(fx,fy,5,0,Math.PI*2); ctx.fill();
+    ctx.save();
+    ctx.strokeStyle='rgba(180,30,0,0.3)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(fx,fy,36,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  });
+
+  // ── Goal creases ───────────────────────────────────────────────────────────
+  ctx.fillStyle='rgba(100,155,210,0.18)'; ctx.strokeStyle='rgba(80,120,190,0.5)'; ctx.lineWidth=2;
+  // Left crease
+  ctx.beginPath(); ctx.arc(x+GOAL.w, y+h/2, 44, -Math.PI*0.5, Math.PI*0.5, false);
+  ctx.lineTo(x+GOAL.w, y+h/2-44); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Right crease
+  ctx.beginPath(); ctx.arc(x+w-GOAL.w, y+h/2, 44, Math.PI*0.5, -Math.PI*0.5, false);
+  ctx.lineTo(x+w-GOAL.w, y+h/2+44); ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // ── Goals ──────────────────────────────────────────────────────────────────
+  goals.forEach((g,t)=>{
+    // Net interior
+    ctx.fillStyle = t===0 ? 'rgba(200,34,0,0.18)' : 'rgba(30,60,200,0.18)';
+    ctx.fillRect(g.x, g.y, GOAL.w, GOAL.h);
+    // Net grid
+    ctx.save();
+    ctx.strokeStyle = t===0 ? 'rgba(180,40,0,0.35)' : 'rgba(30,80,180,0.35)';
+    ctx.lineWidth=1;
+    for(let gx2=g.x;gx2<=g.x+GOAL.w;gx2+=5){
+      ctx.beginPath();ctx.moveTo(gx2,g.y);ctx.lineTo(gx2,g.y+GOAL.h);ctx.stroke();
+    }
+    for(let gy2=g.y;gy2<=g.y+GOAL.h;gy2+=9){
+      ctx.beginPath();ctx.moveTo(g.x,gy2);ctx.lineTo(g.x+GOAL.w,gy2);ctx.stroke();
+    }
+    ctx.restore();
+    // Posts
+    ctx.fillStyle=C.goalPost;
+    ctx.fillRect(g.x-2, g.y-3, 4, GOAL.h+6);   // near post
+    ctx.fillRect(g.x, g.y-3, GOAL.w, 4);        // top bar
+    ctx.fillRect(g.x, g.y+GOAL.h, GOAL.w, 4);   // bottom bar
+    const farPost = t===0 ? g.x+GOAL.w-2 : g.x+GOAL.w-2;
+    ctx.fillRect(farPost, g.y-3, 4, GOAL.h+6);
+  });
+
+  // ── Boards border ──────────────────────────────────────────────────────────
+  ctx.strokeStyle=C.board; ctx.lineWidth=5;
+  ctx.beginPath();
+  ctx.moveTo(x+cr,y); ctx.lineTo(x+w-cr,y);
+  ctx.arcTo(x+w,y,x+w,y+cr,cr);
+  ctx.lineTo(x+w,y+h-cr);
+  ctx.arcTo(x+w,y+h,x+w-cr,y+h,cr);
+  ctx.lineTo(x+cr,y+h);
+  ctx.arcTo(x,y+h,x,y+h-cr,cr);
+  ctx.lineTo(x,y+cr);
+  ctx.arcTo(x,y,x+cr,y,cr);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+// ── DRAW PLAYER ───────────────────────────────────────────────────────────────
+function drawPlayer(p) {
+  const x=px(p.x), y=py(p.y);
+  const d=p.dir;
+  const stride=Math.sin(p.stride)*3;
+
+  // Stun flash
+  if (p.stunned>0 && Math.floor(Date.now()/70)%2===0) return;
+
+  const col  = p.team===0 ? C.red  : C.blue;
+  const dark = p.team===0 ? C.redDark : C.blueDark;
+
+  // Shadow on ice
+  ctx.fillStyle='rgba(0,0,0,0.10)';
+  ctx.beginPath(); ctx.ellipse(x+p.w/2,y+p.h+1,9,3,0,0,Math.PI*2); ctx.fill();
+
+  // Skate blades
+  ctx.fillStyle=C.skate;
+  ctx.fillRect(x+2, y+p.h-2, 6, 2);
+  ctx.fillRect(x+p.w-8, y+p.h-2, 6, 2);
+
+  // Legs
+  ctx.fillStyle='#1a1a33';
+  ctx.fillRect(x+3, y+p.h-9+Math.round(-stride), 5, 8);
+  ctx.fillRect(x+p.w-8, y+p.h-9+Math.round(stride), 5, 8);
+
+  // Shoulder pads / body
+  ctx.fillStyle=dark;
+  ctx.fillRect(x, y+8, p.w, 3);
+  ctx.fillStyle=col;
+  ctx.fillRect(x+1, y+7, p.w-2, 12);
+
+  // Jersey stripe
+  ctx.fillStyle='rgba(255,255,255,0.22)';
+  ctx.fillRect(x+3, y+12, p.w-6, 2);
+
+  // Gloves / arms
+  ctx.fillStyle='#333344';
+  if (d>0) {
+    ctx.fillRect(x-4, y+9, 5, 5);
+    ctx.fillRect(x+p.w-1, y+8, 6, 5);
+  } else {
+    ctx.fillRect(x+p.w, y+9, 4, 5);
+    ctx.fillRect(x-5, y+8, 6, 5);
+  }
+
+  // Helmet
+  ctx.fillStyle=dark;
+  ctx.fillRect(x+2, y, p.w-4, 9);
+  ctx.fillRect(x+1, y+2, p.w-2, 7);
+
+  // Cage/visor (dark gray, no neon)
+  ctx.fillStyle='rgba(50,50,60,0.75)';
+  ctx.fillRect(x+3, y+5, p.w-6, 3);
+  // Cage bars
+  ctx.fillStyle='rgba(30,30,40,0.9)';
+  for (let b=0;b<3;b++) ctx.fillRect(x+3+b*4, y+5, 1, 3);
+
+  // Face
+  ctx.fillStyle=C.flesh;
+  ctx.fillRect(x+4, y+2, p.w-8, 4);
+
+  // Eye
+  ctx.fillStyle='#111';
+  const eyeX = d>0 ? x+p.w-7 : x+4;
+  ctx.fillRect(eyeX, y+3, 2, 2);
+
+  // Hockey stick
+  ctx.fillStyle=C.woodStick;
+  if (d>0) {
+    ctx.fillRect(x+p.w,   y+9,  13, 2);
+    ctx.fillRect(x+p.w+9, y+11, 3,  7);
+    // Blade
+    ctx.fillStyle='#aaaaaa';
+    ctx.fillRect(x+p.w+9, y+17, 6, 2);
+  } else {
+    ctx.fillRect(x-13, y+9,  13, 2);
+    ctx.fillRect(x-12, y+11, 3,  7);
+    ctx.fillStyle='#aaaaaa';
+    ctx.fillRect(x-15, y+17, 6, 2);
+  }
+
+  // Stun stars
+  if (p.stunned>0) {
+    const t=Date.now()/180;
+    for (let si=0;si<3;si++) {
+      const a=t+si*Math.PI*2/3;
+      ctx.fillStyle='#ddbb00';
+      ctx.fillRect(Math.round(x+p.w/2+Math.cos(a)*9-1), Math.round(y-7+Math.sin(a)*4-1), 2,2);
+    }
+  }
+
+  // Puck possession marker (small arrow above)
+  if (p.hasPuck) {
+    ctx.fillStyle='#ddbb00';
+    ctx.fillRect(x+p.w/2-1, y-6, 2, 4);
+    ctx.fillRect(x+p.w/2-2, y-8, 4, 2);
+  }
+}
+
+// ── DRAW GOALIE ───────────────────────────────────────────────────────────────
+function drawGoalie(g) {
+  const x=px(g.x), y=py(g.y);
+  const col  = g.team===0 ? '#cc4400' : '#1144cc';
+  const dark = g.team===0 ? '#882200' : '#0a2288';
+
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,0.12)';
+  ctx.beginPath(); ctx.ellipse(x+g.w/2,y+g.h+2,11,3.5,0,0,Math.PI*2); ctx.fill();
+
+  // Leg pads (wide)
+  ctx.fillStyle='#cccccc';
+  ctx.fillRect(x-3, y+g.h-14, 10, 14);
+  ctx.fillRect(x+g.w-7, y+g.h-14, 10, 14);
+  ctx.fillStyle=col;
+  ctx.fillRect(x-3, y+g.h-12, 10, 3);
+  ctx.fillRect(x+g.w-7, y+g.h-12, 10, 3);
+  // Skates
+  ctx.fillStyle=C.skate;
+  ctx.fillRect(x-2, y+g.h-2, 7, 2);
+  ctx.fillRect(x+g.w-5, y+g.h-2, 7, 2);
+
+  // Body (bulky pads)
+  ctx.fillStyle=dark; ctx.fillRect(x-2, y+7, g.w+4, 3);
+  ctx.fillStyle=col;  ctx.fillRect(x-2, y+7, g.w+4, 14);
+
+  // Blocker
+  ctx.fillStyle='#666677';
+  if (g.team===0) ctx.fillRect(x+g.w+1, y+8, 10, 8);
+  else            ctx.fillRect(x-11,     y+8, 10, 8);
+
+  // Trapper
+  ctx.fillStyle='#885522';
+  if (g.team===0) ctx.fillRect(x-10, y+9, 9, 9);
+  else            ctx.fillRect(x+g.w+1, y+9, 9, 9);
+
+  // Helmet (big goalie mask)
+  ctx.fillStyle=dark;
+  ctx.fillRect(x, y-2, g.w, 11);
+  // Mask pattern (Contra-style)
+  ctx.fillStyle=col;
+  ctx.fillRect(x+2, y, g.w-4, 4);
+  ctx.fillStyle='rgba(30,30,40,0.8)';
+  ctx.fillRect(x+2, y+4, g.w-4, 4); // dark cage
+  // Cage bars
+  ctx.fillStyle='rgba(20,20,30,0.9)';
+  for (let b=0;b<4;b++) ctx.fillRect(x+2+b*4, y+4, 1, 4);
+
+  // Face behind mask
+  ctx.fillStyle=C.flesh; ctx.fillRect(x+4, y+1, g.w-8, 3);
+
+  // "G" indicator
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(x+g.w/2-2, y+1, 4, 3);
+}
+
+// ── DRAW PUCK ─────────────────────────────────────────────────────────────────
+function drawPuck() {
+  // Trail — simple dark squares, no neon
+  puck.trail.forEach((t,i)=>{
+    const a=(i/puck.trail.length)*0.35;
+    const sz=Math.max(1, puck.r*(i/puck.trail.length)*0.7);
+    ctx.save();
+    ctx.globalAlpha=a;
+    ctx.fillStyle='#334455';
+    ctx.fillRect(px(t.x-sz/2), py(t.y-sz/2), Math.round(sz), Math.round(sz));
+    ctx.restore();
+  });
+
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(px(puck.x)+2,py(puck.y)+3,puck.r-1,puck.r*0.4,0,0,Math.PI*2); ctx.fill();
+
+  // Puck body (flat, no glow)
+  ctx.fillStyle=C.puck;
+  ctx.beginPath();
+  ctx.ellipse(px(puck.x),py(puck.y),puck.r,puck.r*0.6,0,0,Math.PI*2);
+  ctx.fill();
+  // Top edge highlight (subtle)
+  ctx.fillStyle='#2a2a2a';
+  ctx.beginPath();
+  ctx.ellipse(px(puck.x),py(puck.y)-1,puck.r-1,puck.r*0.4,0,Math.PI,Math.PI*2);
+  ctx.fill();
+}
+
+// ── DRAW PARTICLES ────────────────────────────────────────────────────────────
+function drawParticles() {
+  for (const p of particles) {
+    const a=Math.max(0, p.life/p.maxLife);
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.fillStyle=p.color;
+    ctx.fillRect(px(p.x-p.size/2), py(p.y-p.size/2), Math.ceil(p.size), Math.ceil(p.size));
+    ctx.restore();
+  }
+}
+
+// ── DRAW BACKGROUND (arena) ───────────────────────────────────────────────────
+function drawBackground() {
+  // Arena floor (dark)
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+
+  // Crowd rows — flat pixel blocks, no glow
+  for (let row=0;row<4;row++) {
+    for (let col=0;col<44;col++) {
+      const c=C.crowd[(row*7+col*3)%C.crowd.length];
+      ctx.fillStyle=c;
+      const ox=(row%2)*9;
+      // Top stands
+      ctx.globalAlpha=0.55;
+      ctx.fillRect(18+col*17+ox, 1+row*6, 7, 5);
+      // Bottom stands
+      ctx.fillRect(18+col*17+ox, H-28+row*6, 7, 5);
+      ctx.globalAlpha=1;
+    }
+  }
+}
+
+// ── DRAW GOAL FLASH ───────────────────────────────────────────────────────────
+function drawGoalFlash() {
+  if (gameState!=='goal') return;
+  const flash=Math.abs(Math.sin(Date.now()/110))*0.18+0.06;
+  ctx.save();
+  ctx.globalAlpha=flash;
+  ctx.fillStyle='#ddaa00';
+  ctx.fillRect(RINK.x,RINK.y,RINK.w,RINK.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font='bold 44px "Press Start 2P"';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  // Chunky pixel text shadow (Contra-style)
+  ctx.fillStyle='#000';
+  ctx.fillText('GOAL!!!', W/2+3, H/2+3);
+  ctx.fillStyle='#ddaa00';
+  ctx.fillText('GOAL!!!', W/2, H/2);
+  ctx.restore();
+}
+
+// ── MAIN DRAW ─────────────────────────────────────────────────────────────────
+function draw() {
+  drawBackground();
+  drawRink();
+  for (const g of goalies) drawGoalie(g);
+  for (const p of players) drawPlayer(p);
+  drawPuck();
+  drawParticles();
+  drawGoalFlash();
+}
+
+// ── GAME OVER ─────────────────────────────────────────────────────────────────
+function showGameOver() {
+  const ov=document.getElementById('overlay');
+  const w = scores[0]>scores[1]?'THUNDER WINS!':scores[1]>scores[0]?'BLIZZARD WINS!':'TIE GAME!';
+  ov.innerHTML=`
+    <h1>${w}</h1>
+    <div class="subtitle">FINAL SCORE</div>
+    <h2>${scores[0]}  VS  ${scores[1]}</h2>
+    <p>&nbsp;</p>
+    <p>THUNDER ${scores[0]}  ·  BLIZZARD ${scores[1]}</p>
+    <p>3 PERIODS COMPLETE</p>
+    <button class="big-btn" id="start-btn">► PLAY AGAIN</button>
+  `;
+  ov.style.display='flex';
+  document.getElementById('start-btn').addEventListener('click', startGame);
+}
+
+// ── LOOP ──────────────────────────────────────────────────────────────────────
+function loop(ts) {
+  const raw = (ts - lastTS) / 1000;
+  const dt  = Math.min(raw, 0.05); // hard cap: prevents spiral-of-death on tab resume
+  lastTS = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function startGame() {
+  document.getElementById('overlay').style.display='none';
+  initGame();
+  gameState='play';
+  showMsg('PUCK DROP!');
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+
+// Bootstrap
+requestAnimationFrame(ts => { lastTS=ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
