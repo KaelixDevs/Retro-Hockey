@@ -19,5 +19,7 @@ Use checks to steal the puck
 Stay close to the goal for quick shots
 
 Have fun :)
+Join the Discord!: https://discord.gg/k32eJna3cB
 
 Note: The HTML File Linked in the Main is v1.0, To Get Recent Versions, Please Download From the Release.
+
