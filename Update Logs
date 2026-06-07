@@ -1,0 +1,22 @@
+Update Logs:
+
+v1.0 - Launch
+the first playable version of retro hockey with basic movement, shooting, checking, and 2 player local multiplayer added.
+
+Whats in the update:
+ • Player movement
+ • Shooting
+ • Checking
+ • Basic Scoring System
+ • Local 2-Player Option
+
+Features soon to be added:
+ • Passing
+ • Better Shots
+ • Smarter AI (Specifically Teamates)
+ • Match Timer With Quarters
+ • Menu Screen With Both 1 And 2 Player Buttons (If you select the 1 player, the AI will only and ONLY kick in then for the opposite team, if you select 2 player then NO AI will be implemented BESIDES the other players teamates)
+ • Player Swicher
+ • Draggable Bar to Determine Team Size
+ • Better Puck Physics
+ • Sounds + Crowd Noises
